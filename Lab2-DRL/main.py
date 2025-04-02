@@ -1,7 +1,7 @@
 import argparse
 import wandb
 import gymnasium
-from networks import PolicyNet
+from networks import PolicyNet, ValueNet
 from reinforce import reinforce
 from common import run_episode
 
@@ -9,7 +9,7 @@ def parse_args():
     """The argument parser for the main training script."""
     parser = argparse.ArgumentParser(description='A script implementing REINFORCE on the Cartpole environment.')
     parser.add_argument('--project', type=str, default='DLA2025-Cartpole', help='Wandb project to log to.')
-    parser.add_argument('--baseline', type=str, default='none', help='Baseline to use (none, std)')
+    parser.add_argument('--baseline', type=str, default='none', help='Baseline to use (none, std, val_net)')
     parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor for future rewards')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
@@ -40,9 +40,11 @@ if __name__ == "__main__":
 
     # Make a policy network.
     policy = PolicyNet(env)
+    # Make a value network.
+    val_net = ValueNet(env)
 
     # Train the agent.
-    reinforce(policy, env, run, lr=args.lr, baseline='none', num_episodes=args.episodes, gamma=args.gamma)
+    reinforce(policy, val_net, env, run, lr=args.lr, baseline='val_net', num_episodes=args.episodes, gamma=args.gamma)
 
     # And optionally run the final agent for a few episodes.
     if args.visualize:
