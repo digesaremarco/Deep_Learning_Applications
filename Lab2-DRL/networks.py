@@ -79,3 +79,18 @@ class PolicyNet(nn.Module):
         s = self.hidden(s)
         s = F.softmax(self.out(s), dim=-1)
         return s
+
+class ValueNet(nn.Module):
+    ''' Neural network for the value function approximation. '''
+
+    def __init__(self, env, n_hidden=1, width=128):
+        super().__init__()
+        hidden_layers = [nn.Linear(env.observation_space.shape[0], width), nn.ReLU()]
+        hidden_layers += [nn.Linear(width, width), nn.ReLU()] * (n_hidden - 1)
+        self.hidden = nn.Sequential(*hidden_layers)
+        self.out = nn.Linear(width, 1) # 1 output for the value function
+
+    def forward(self, s):
+        s = self.hidden(s)
+        s = self.out(s)
+        return s
