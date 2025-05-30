@@ -41,10 +41,10 @@ if __name__ == "__main__":
     # Make a policy network.
     policy = PolicyNet(env)
     # Make a value network.
-    val_net = ValueNet(env)
+    value_net = ValueNet(env)
 
     # Train the agent.
-    reinforce(policy, val_net, env, run, lr=args.lr, baseline='val_net', num_episodes=args.episodes, gamma=args.gamma)
+    reinforce(policy, value_net, env, run, lr=args.lr, baseline='val_net', num_episodes=args.episodes, gamma=args.gamma)
 
     # And optionally run the final agent for a few episodes.
     if args.visualize:

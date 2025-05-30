@@ -3,7 +3,7 @@ import wandb
 from networks import save_checkpoint
 from common import run_episode, compute_returns
 
-def reinforce(policy, val_net, env, run, gamma=0.99, lr=0.02, baseline='std', num_episodes=10):
+def reinforce(policy, value_net, env, run, gamma=0.99, lr=0.02, baseline='std', num_episodes=10):
     """
     A direct, inefficient, and probably buggy implementation of the REINFORCE policy gradient algorithm.
     Checkpoints best model at each iteration to the wandb run directory.
@@ -26,7 +26,9 @@ def reinforce(policy, val_net, env, run, gamma=0.99, lr=0.02, baseline='std', nu
 
     # The only non-vanilla part: we use Adam instead of SGD.
     opt = torch.optim.Adam(policy.parameters(), lr=lr)
-    opt_val = torch.optim.Adam(val_net.parameters(), lr=lr)
+    #opt_value = torch.optim.Adam(value_net.parameters(), lr=lr)
+    opt_value = torch.optim.Adam(value_net.parameters(), lr=lr) if baseline == 'val_net' else None
+
 
     # Track episode rewards in a list.
     running_rewards = [0.0]
@@ -34,7 +36,9 @@ def reinforce(policy, val_net, env, run, gamma=0.99, lr=0.02, baseline='std', nu
 
     # The main training loop.
     policy.train()
-    val_net.train()
+    if value_net:
+        value_net.train()
+    #value_net.train()
     for episode in range(num_episodes):
         # New dict for the wandb log for current iteration.
         log = {}
@@ -42,27 +46,43 @@ def reinforce(policy, val_net, env, run, gamma=0.99, lr=0.02, baseline='std', nu
         # Run an episode of the environment, collect everything needed for policy update.
         (observations, actions, log_probs, rewards) = run_episode(env, policy)
 
-        # Compute the discounted reward for every step of the episode. 
+        # Compute the discounted reward for every step of the episode.
         returns = torch.tensor(compute_returns(rewards, gamma), dtype=torch.float32)
 
         # Keep a running average of total discounted rewards for the whole episode.
         running_rewards.append(0.05 * returns[0].item() + 0.95 * running_rewards[-1])
 
         # Log some stuff.
-        log['episode_length'] = len(returns)
-        log['return'] = returns[0]
+        log['episode_length'] = len(returns) # length of the episode (i.e., number of steps), bigger value means longer episode
+        log['return'] = returns[0] # return indicates the total discounted reward for the episode, big value means good
 
         # Checkpoint best model.
         if running_rewards[-1] > best_return:
             save_checkpoint('BEST', policy, opt, wandb.run.dir)
 
-        # Basline returns.
+        # Baseline returns.
         if baseline == 'none':
             base_returns = returns # no baseline
         elif baseline == 'std':
             base_returns = (returns - returns.mean()) / returns.std() # standardized baseline
         elif baseline == 'val_net':
-            base_returns = val_net(torch.stack(observations)).squeeze() # value network baseline
+            with torch.no_grad():
+                value_estimates = value_net(torch.stack(observations)).squeeze()
+                base_returns = returns - value_estimates
+
+            # Train value network to fit returns
+            opt_value.zero_grad()
+            value_estimates_train = value_net(torch.stack(observations)).squeeze()
+            value_loss = torch.nn.functional.mse_loss(value_estimates_train, returns) # MSE loss
+            value_loss.backward()
+            opt_value.step()
+            log['value_loss'] = value_loss.item()
+
+        '''elif baseline == 'val_net':
+            #base_returns = value_net(torch.stack(observations)).squeeze() # value network baseline
+            #with torch.no_grad():
+            baseline_values = value_net(torch.stack(observations)).squeeze()
+            base_returns = returns - baseline_values'''
 
         # Make an optimization step on the policy network.
         opt.zero_grad()
@@ -70,14 +90,15 @@ def reinforce(policy, val_net, env, run, gamma=0.99, lr=0.02, baseline='std', nu
         policy_loss.backward()
         opt.step()
         # Make an optimization step on the value network.
-        opt_val.zero_grad()
-        val_loss = (returns - val_net(torch.stack(observations)).squeeze()).pow(2).mean() # MSE loss
-        val_loss.backward()
-        opt_val.step()
+        #opt_value.zero_grad()
+        #value_loss = (returns - value_net(torch.stack(observations)).squeeze()).pow(2).mean() # MSE loss
+        #value_loss.backward()
+        #opt_value.step()
 
         # Log the current loss and finalize the log for this episode.
         log['policy_loss'] = policy_loss.item()
-        log['val_loss'] = val_loss.item()
+        '''if baseline == 'val_net':
+            log['value_loss'] = value_loss.item()'''
         run.log(log)
 
         # Print running reward and (optionally) render an episode after every 100 policy updates.
@@ -86,4 +107,7 @@ def reinforce(policy, val_net, env, run, gamma=0.99, lr=0.02, baseline='std', nu
 
     # Return the running rewards.
     policy.eval()
+    if value_net:
+        value_net.eval()
+
     return running_rewards
